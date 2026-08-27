@@ -1,0 +1,23 @@
+# 비밀정보
+.env
+
+# 파이썬 런타임
+__pycache__/
+*.pyc
+venv/
+.venv/
+.venv-1/
+
+# 실행 상태/로그/캐시 (봇이 계속 덮어쓰는 파일 — 버전관리 대상 아님)
+logs/
+*_state.json
+positions.json
+holdings.json
+holdings_kr.json
+coin_range_holdings.json
+strategy_log.json
+kr_symbols_cache.json
+sp500_symbols_cache.json
+
+# OS
+.DS_Store
