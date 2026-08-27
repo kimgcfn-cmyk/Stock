@@ -1,0 +1,56 @@
+{
+  "config": {
+    "index_code": "2001",
+    "years": 3.0,
+    "since_date": null,
+    "warmup_days": 10,
+    "starting_cash": 10000000.0,
+    "entry_drop_pct": 1.0,
+    "entry_rise_pct": 1.0,
+    "target_pct": 15.0,
+    "stop_pct": 3.0,
+    "max_hold_days": 0,
+    "trade_long": true,
+    "trade_short": false,
+    "synth_annual_cost_pct": 1.0,
+    "fee_pct": 0.015,
+    "risk_per_trade": 1.0
+  },
+  "result": {
+    "final_cash": 122693397.0,
+    "total_return_pct": 1126.93,
+    "true_return_pct": 1126.93,
+    "mdd_pct": 27.53,
+    "n_trades": 79,
+    "win_rate": 36.7,
+    "profit_factor": 2.24,
+    "long_n": 79,
+    "short_n": 0,
+    "avg_hold_days": 7.2,
+    "longest_hold_days": 66,
+    "worst_underwater_pct": -25.1,
+    "open_position": null,
+    "yearly": {
+      "2023": {
+        "trades": 7,
+        "win_rate": 28.6,
+        "pnl": 1333291.0
+      },
+      "2024": {
+        "trades": 20,
+        "win_rate": 25.0,
+        "pnl": 3016302.0
+      },
+      "2025": {
+        "trades": 20,
+        "win_rate": 55.0,
+        "pnl": 36117238.0
+      },
+      "2026": {
+        "trades": 32,
+        "win_rate": 34.4,
+        "pnl": 72226566.0
+      }
+    }
+  }
+}
