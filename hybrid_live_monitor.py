@@ -118,19 +118,25 @@ def fetch_daily(symbol: str, days_target: int = 300) -> list:
          "appkey": APP_KEY, "appsecret": APP_SECRET, "tr_id": "HHDFS76240000"}
     url = f"{BASE_URL}/uapi/overseas-price/v1/quotations/dailyprice"
 
+    # 거래소 판별 (rate limit 대비 재시도 2회)
     excd = ""
-    for e in ["NAS", "NYS", "AMS"]:
-        try:
-            r = requests.get(url, headers=h, params={
-                "AUTH": "", "EXCD": e, "SYMB": symbol,
-                "GUBN": "0", "BYMD": "", "MODP": "1"}, timeout=10)
-            if r.json().get("output2"):
-                excd = e
-                break
-        except Exception:
-            pass
-        time.sleep(CFG["api_delay"])
+    for attempt in range(2):
+        for e in ["NAS", "NYS", "AMS"]:
+            try:
+                r = requests.get(url, headers=h, params={
+                    "AUTH": "", "EXCD": e, "SYMB": symbol,
+                    "GUBN": "0", "BYMD": "", "MODP": "1"}, timeout=10)
+                if r.json().get("output2"):
+                    excd = e
+                    break
+            except Exception:
+                pass
+            time.sleep(0.3)   # rate limit 회피용 딜레이
+        if excd:
+            break
+        time.sleep(0.5)   # 첫 시도 전체 실패 시 잠시 대기 후 재시도
     if not excd:
+        print(f"  ⚠️  {symbol} 거래소 판별 실패 (rate limit 가능성)")
         return []
 
     all_c, seen, base = [], set(), ""
@@ -234,6 +240,7 @@ def run_check(send: bool = True):
     print(f"  [목표] TQQQ {tgt_pct:.0f}% / 채권 {100-tgt_pct:.0f}%")
 
     # 2) TQQQ 현재가 + 급락 감지
+    time.sleep(0.5)   # QQQ 수집 직후 rate limit 회피
     tqqq = fetch_daily(CFG["attack_symbol"], 300)
     tqqq_closes = [float(c.get("clos", 0)) for c in tqqq if float(c.get("clos", 0)) > 0]
     tqqq_now = tqqq_closes[-1] if tqqq_closes else 0

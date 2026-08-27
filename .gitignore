@@ -19,5 +19,6 @@ strategy_log.json
 kr_symbols_cache.json
 sp500_symbols_cache.json
 
-# OS
+# OS / 로컬 도구 설정
 .DS_Store
+.claude/
