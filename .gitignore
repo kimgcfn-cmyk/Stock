@@ -22,3 +22,10 @@ sp500_symbols_cache.json
 # OS / 로컬 도구 설정
 .DS_Store
 .claude/
+
+# 코인 관련 파일 — Coin 저장소가 전담 관리 (2026-08-27)
+# 여기서 실수로 다시 추적되는 걸 막기 위한 안전장치
+coin_grid_monitor.py
+coin_range_monitor.py
+config.py
+telegram_alert_scanner.py
