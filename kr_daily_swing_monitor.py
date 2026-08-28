@@ -350,42 +350,55 @@ def run_check(send: bool = True, force: bool = False):
                     side = "short"   # 급등 → 인버스 매수 (하락 베팅)
 
             if side:
-                code = CFG["long_code"] if side == "long" else CFG["short_code"]
-                name = CFG["long_name"] if side == "long" else CFG["short_name"]
-                price = fetch_price(code)
-                if price:
-                    target = price*(1+CFG["target_pct"]/100)
-                    stop = price*(1-CFG["stop_pct"]/100)
-                    arrow = "📉→🟢매수(반등베팅)" if side=="long" else "📈→🔴매수(하락베팅)"
-                    entry_msg = (f"{'🟢' if side=='long' else '🔴'} <b>{name} 매수 신호!</b> {arrow}\n"
-                           f"코스피200 당일 {day_chg:+.2f}% (기준 ±{CFG['entry_pct']:.0f}% 충족)\n\n"
-                           f"{name} 현재 {price:,.0f}원\n"
-                           f"장마감 전 종가 부근 매수\n\n"
-                           f"🎯 익절 +{CFG['target_pct']:.0f}% → {target:,.0f}원\n"
-                           f"📍 손절 -{CFG['stop_pct']:.0f}% → {stop:,.0f}원\n\n"
-                           f"💡 예약주문(OCO) 걸어두면 이후 자동 관리\n"
-                           f"※ 삼성전자/하이닉스 단일종목레버리지 사용 시(롱)\n"
-                           f"  해당 종목 가격 기준 +{CFG['target_pct']:.0f}%/-{CFG['stop_pct']:.0f}%로 설정")
-
-                    if CFG["auto_trade"] and send:
-                        # ⚠️ 자동매매 켜진 경우: 실제 체결 성공을 확인한 뒤에만 포지션 추가.
-                        bought, buy_msg, qty = try_auto_buy(code, name, price, {})
-                        entry_msg += buy_msg
-                        if bought:
-                            state.setdefault("positions", []).append({
-                                "side": side, "entry": price, "qty": qty,
-                                "entry_date": kst_now().strftime("%Y-%m-%d"),
-                                "index_chg_at_entry": round(day_chg,2),
-                            })
-                        state["pending_entry_check"] = False
-                    else:
-                        # 자동매매 미사용: 알림만 (참고용, 포지션엔 추가 안 함)
-                        state["pending_entry_check"] = False
-                    msgs.append(entry_msg)
+                # 2026-08-28: 당일·같은 방향 신호는 한 번만 알린다.
+                # (예전엔 진입창이 열려있는 동안 조건이 유지되면 5분마다 재발송됐음 —
+                #  청산 신호의 notified_exit와 달리 여긴 auto_trade 꺼져있으면
+                #  positions에 아무것도 안 남아서 억제할 근거가 없었음)
+                today_str = kst_now().strftime("%Y-%m-%d")
+                last_alert = state.get("last_entry_alert") or {}
+                already_alerted = (last_alert.get("date") == today_str
+                                    and last_alert.get("side") == side)
+                if already_alerted:
+                    print(f"  ⚪ 진입 신호 유지 중 (오늘 {side} 이미 알림 발송함 — 중복 생략)")
+                    state["pending_entry_check"] = False
                 else:
-                    print(f"  🚨 진입 조건({day_chg:+.2f}%)은 충족했으나 {name}({code}) "
-                          f"시세 조회 실패 — 다음 실행 때 자동 재시도됩니다")
-                    state["pending_entry_check"] = True
+                    code = CFG["long_code"] if side == "long" else CFG["short_code"]
+                    name = CFG["long_name"] if side == "long" else CFG["short_name"]
+                    price = fetch_price(code)
+                    if price:
+                        target = price*(1+CFG["target_pct"]/100)
+                        stop = price*(1-CFG["stop_pct"]/100)
+                        arrow = "📉→🟢매수(반등베팅)" if side=="long" else "📈→🔴매수(하락베팅)"
+                        entry_msg = (f"{'🟢' if side=='long' else '🔴'} <b>{name} 매수 신호!</b> {arrow}\n"
+                               f"코스피200 당일 {day_chg:+.2f}% (기준 ±{CFG['entry_pct']:.0f}% 충족)\n\n"
+                               f"{name} 현재 {price:,.0f}원\n"
+                               f"장마감 전 종가 부근 매수\n\n"
+                               f"🎯 익절 +{CFG['target_pct']:.0f}% → {target:,.0f}원\n"
+                               f"📍 손절 -{CFG['stop_pct']:.0f}% → {stop:,.0f}원\n\n"
+                               f"💡 예약주문(OCO) 걸어두면 이후 자동 관리\n"
+                               f"※ 삼성전자/하이닉스 단일종목레버리지 사용 시(롱)\n"
+                               f"  해당 종목 가격 기준 +{CFG['target_pct']:.0f}%/-{CFG['stop_pct']:.0f}%로 설정")
+
+                        if CFG["auto_trade"] and send:
+                            # ⚠️ 자동매매 켜진 경우: 실제 체결 성공을 확인한 뒤에만 포지션 추가.
+                            bought, buy_msg, qty = try_auto_buy(code, name, price, {})
+                            entry_msg += buy_msg
+                            if bought:
+                                state.setdefault("positions", []).append({
+                                    "side": side, "entry": price, "qty": qty,
+                                    "entry_date": kst_now().strftime("%Y-%m-%d"),
+                                    "index_chg_at_entry": round(day_chg,2),
+                                })
+                            state["pending_entry_check"] = False
+                        else:
+                            # 자동매매 미사용: 알림만 (참고용, 포지션엔 추가 안 함)
+                            state["pending_entry_check"] = False
+                        state["last_entry_alert"] = {"date": today_str, "side": side}
+                        msgs.append(entry_msg)
+                    else:
+                        print(f"  🚨 진입 조건({day_chg:+.2f}%)은 충족했으나 {name}({code}) "
+                              f"시세 조회 실패 — 다음 실행 때 자동 재시도됩니다")
+                        state["pending_entry_check"] = True
             else:
                 if is_anomaly:
                     state["pending_entry_check"] = True   # 이상치는 다음 실행에서 재확인
