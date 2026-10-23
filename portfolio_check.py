@@ -185,51 +185,96 @@ def get_us_holdings() -> list:
 # ══════════════════════════════════════════════════════
 #  3) 코인 잔고 (Bitget — ccxt)
 # ══════════════════════════════════════════════════════
+def _positions_from(ex, params: dict) -> list:
+    """오픈된 선물 포지션 목록 (증거금이 아니라 방향/수량/손익)"""
+    positions = []
+    for p in ex.fetch_positions(None, params):
+        contracts = p.get("contracts") or 0
+        if contracts and contracts > 0:
+            positions.append({
+                "symbol": p.get("symbol", "?"),
+                "side": p.get("side", "?"),
+                "contracts": contracts,
+                "entry": p.get("entryPrice"),
+                "mark": p.get("markPrice"),
+                "pnl_pct": p.get("percentage"),
+                "unrealized": p.get("unrealizedPnl"),
+            })
+    return positions
+
+def _holdings_uta(ex) -> tuple:
+    """통합계정(UTA): 현물/선물 지갑이 하나로 합쳐져 있어 자산 목록 + 선물 포지션을 조회한다.
+    API 키에 'Unified account > Manage' 권한이 필요하다(없으면 40014)."""
+    bal = ex.fetch_balance({"uta": True})
+    items = [{"coin": c, "amount": a} for c, a in (bal.get("total") or {}).items() if a and a > 0]
+    extra = {"mode": "uta"}
+    raw = bal.get("info")
+    assets = raw if isinstance(raw, list) else ((raw or {}).get("data") or [])
+    for a in assets:
+        if isinstance(a, dict) and a.get("coin") == "USDT":
+            extra["usdt_equity"] = float(a.get("equity") or 0)
+            extra["usdt_available"] = float(a.get("available") or 0)
+    positions = []
+    try:
+        positions = _positions_from(ex, {"uta": True, "productType": "USDT-FUTURES"})
+    except Exception as e:
+        print(f"  선물 포지션 조회 예외: {e}")
+    return items, [], positions, None, extra
+
+def _holdings_classic(ex) -> tuple:
+    """기존(Classic) 계정: 현물 + 선물 증거금 + 선물 포지션"""
+    spot_items, swap_bal_items, positions = [], [], []
+    bal = ex.fetch_balance()
+    for coin, amt in (bal.get("total") or {}).items():
+        if amt and amt > 0:
+            spot_items.append({"coin": coin, "amount": amt})
+    try:
+        bal2 = ex.fetch_balance({"type": "swap"})
+        for coin, amt in (bal2.get("total") or {}).items():
+            if amt and amt > 0:
+                swap_bal_items.append({"coin": coin, "amount": amt})
+    except Exception:
+        pass
+    try:
+        positions = _positions_from(ex, {})
+    except Exception as e:
+        print(f"  선물 포지션 조회 예외: {e}")
+    return spot_items, swap_bal_items, positions, None, {"mode": "classic"}
+
 def get_coin_holdings() -> tuple:
-    """반환: (현물리스트, 선물잔고리스트, 선물포지션리스트, 오류메시지 or None)
-    ※ 선물은 fetch_balance만으로는 증거금(현금)만 보이고 실제 포지션(BTC/ETH 등
-    레버리지 진입분)은 안 잡히므로 fetch_positions를 별도로 조회한다."""
+    """반환: (자산리스트, 선물증거금리스트, 선물포지션리스트, 오류메시지 or None, extra dict)
+    통합계정(UTA)을 먼저 시도하고, 안 되면 기존(Classic) 방식으로 조회한다.
+    ※ 2026-10-15경 Bitget 계정이 통합계정 모드로 바뀌며 Classic API가 40085로 막혔다."""
     if not BITGET_KEY or not BITGET_SECRET:
-        return [], [], [], ".env에 BITGET_API_KEY / BITGET_API_SECRET / BITGET_PASSPHRASE 필요"
+        return [], [], [], ".env에 BITGET_API_KEY / BITGET_API_SECRET / BITGET_PASSPHRASE 필요", {}
     try:
         import ccxt
     except ImportError:
-        return [], [], [], "ccxt 미설치 (venv/bin/pip install ccxt)"
-    spot_items, swap_bal_items, positions = [], [], []
+        return [], [], [], "ccxt 미설치 (venv/bin/pip install ccxt)", {}
     try:
         ex = ccxt.bitget({"apiKey": BITGET_KEY, "secret": BITGET_SECRET,
                           "password": BITGET_PASS, "enableRateLimit": True})
-        bal = ex.fetch_balance()
-        for coin, amt in (bal.get("total") or {}).items():
-            if amt and amt > 0:
-                spot_items.append({"coin": coin, "amount": amt})
+    except Exception as e:
+        return [], [], [], f"Bitget 연결 오류: {e}", {}
+
+    try:
+        return _holdings_uta(ex)
+    except Exception as e:
+        uta_err = str(e)
+    try:
+        return _holdings_classic(ex)
+    except Exception as e:
+        cls_err = str(e)
+
+    if "40014" in uta_err:   # 통합계정인데 API 키 권한이 부족한 경우: 포지션이라도 보여준다
+        positions = []
         try:
-            bal2 = ex.fetch_balance({"type": "swap"})
-            for coin, amt in (bal2.get("total") or {}).items():
-                if amt and amt > 0:
-                    swap_bal_items.append({"coin": coin, "amount": amt})
+            positions = _positions_from(ex, {"uta": True, "productType": "USDT-FUTURES"})
         except Exception:
             pass
-        # 실제 진입한 선물 포지션 (증거금이 아니라 방향/수량/손익)
-        try:
-            poss = ex.fetch_positions()
-            for p in poss:
-                contracts = p.get("contracts") or 0
-                if contracts and contracts > 0:
-                    positions.append({
-                        "symbol": p.get("symbol", "?"),
-                        "side": p.get("side", "?"),
-                        "contracts": contracts,
-                        "entry": p.get("entryPrice"),
-                        "mark": p.get("markPrice"),
-                        "pnl_pct": p.get("percentage"),
-                        "unrealized": p.get("unrealizedPnl"),
-                    })
-        except Exception as e:
-            print(f"  선물 포지션 조회 예외: {e}")
-        return spot_items, swap_bal_items, positions, None
-    except Exception as e:
-        return [], [], [], f"Bitget 조회 오류: {e}"
+        return [], [], positions, ("통합계정 잔고 조회 권한 없음 — Bitget API 키에 "
+                                   "'Unified account > Manage' 권한을 켜세요 (코드 40014)"), {"mode": "uta"}
+    return [], [], [], f"Bitget 조회 오류: 통합계정[{uta_err[:110]}] / 기존[{cls_err[:110]}]", {}
 
 # ══════════════════════════════════════════════════════
 #  출력 / 텔레그램
@@ -240,6 +285,15 @@ def _fmt_qty(q: float) -> str:
         return f"{int(q):,}"
     s = f"{q:,.4f}".rstrip("0").rstrip(".")
     return s
+
+def _fmt_px(v) -> str:
+    """가격 표시: 100 이상은 소수 2자리, 1 이상은 4자리, 그 미만은 유효숫자 6자리"""
+    if v is None:
+        return "?"
+    v = float(v)
+    if v >= 100: return f"{v:,.2f}"
+    if v >= 1:   return f"{v:,.4f}"
+    return f"{v:.6g}"
 
 def send_telegram(text: str):
     if not TG_TOKEN:
@@ -279,27 +333,29 @@ def build_report() -> str:
     lines.append("")
 
     # 코인
-    spot, swap, positions, err = get_coin_holdings()
-    lines.append("🪙 <b>코인 (Bitget)</b>")
+    spot, swap, positions, err, extra = get_coin_holdings()
+    uta = extra.get("mode") == "uta"
+    lines.append("🪙 <b>코인 (Bitget 통합계정)</b>" if uta else "🪙 <b>코인 (Bitget)</b>")
     if err:
         lines.append(f"  ⚠️ {err}")
-    else:
-        if spot:
-            lines.append("  [현물] " + ", ".join(f"{x['coin']} {_fmt_qty(x['amount'])}" for x in spot))
-        if positions:
-            lines.append("  [선물 포지션]")
-            for p in positions:
-                side_kr = "롱" if p["side"] == "long" else "숏" if p["side"] == "short" else p["side"]
-                entry = f"{p['entry']:,.2f}" if p['entry'] else "?"
-                mark = f"{p['mark']:,.2f}" if p['mark'] else "?"
-                pnl = f"{p['pnl_pct']:+.1f}%" if p['pnl_pct'] is not None else "?"
-                lines.append(f"    {p['symbol']} {side_kr} {_fmt_qty(p['contracts'])} "
-                             f"(진입 {entry} → 현재 {mark}, {pnl})")
-        elif swap:
-            lines.append("  [선물 증거금] " + ", ".join(f"{x['coin']} {_fmt_qty(x['amount'])}" for x in swap)
-                         + " (오픈 포지션 없음)")
-        if not spot and not positions and not swap:
-            lines.append("  보유 없음")
+    if uta and spot:
+        lines.append("  [자산] " + ", ".join(f"{x['coin']} {_fmt_qty(x['amount'])}" for x in spot))
+        if extra.get("usdt_equity") is not None:
+            lines.append(f"  [USDT] 평가 {extra['usdt_equity']:,.2f} / 사용가능 {extra['usdt_available']:,.2f}")
+    elif spot:
+        lines.append("  [현물] " + ", ".join(f"{x['coin']} {_fmt_qty(x['amount'])}" for x in spot))
+    if positions:
+        lines.append("  [선물 포지션]")
+        for p in positions:
+            side_kr = "롱" if p["side"] == "long" else "숏" if p["side"] == "short" else p["side"]
+            pnl = f"{p['pnl_pct']:+.1f}%" if p['pnl_pct'] is not None else "?"
+            lines.append(f"    {p['symbol']} {side_kr} {_fmt_qty(p['contracts'])} "
+                         f"(진입 {_fmt_px(p['entry'])} → 현재 {_fmt_px(p['mark'])}, {pnl})")
+    elif swap:
+        lines.append("  [선물 증거금] " + ", ".join(f"{x['coin']} {_fmt_qty(x['amount'])}" for x in swap)
+                     + " (오픈 포지션 없음)")
+    if not err and not spot and not positions and not swap:
+        lines.append("  보유 없음")
 
     return "\n".join(lines)
 
